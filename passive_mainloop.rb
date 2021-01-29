@@ -37,40 +37,20 @@ module Mainloop
   end
 
   def mainloop
-    delayer_read, delayer_write = IO.pipe
-    
-    Delayer.register_remain_hook do
-      er = caller.find { |c| not c.include?("delayer") }
-      delayer_write.puts("remain_hook by #{er}")
-    end
-
-    Delayer.register_reserve_hook do |delay|
-      er = caller.find { |c| not c.include?("delayer") }
-      Thread.new do
-        sleep delay
-        delayer_write.puts("reserve_hook(#{delay}) by #{er}")
-      end
-    end
-
-    Signal.trap(:USR1) do
-      delayer_write.puts("USR1")
-    end
-
-    if ENV["ALLEN"] == "1"
-      Thread.new do
-        loop do
-          sleep 0.25
-          delayer_write.puts("Allen")
-        end
-      end
-    end
+    pipes = []
+    pipes << prepare_remain_hook
+    pipes << prepare_reserve_hook
+    pipes << prepare_sigusr1
+    pipes << prepare_allen if ENV["ALLEN"] == "1"
 
     notice "Started. My PID is #{Process.pid}"
 
-    while (readable, = IO.select([delayer_read]))
-      event = readable.first.gets.strip
-      notice "Run: #{event}"
-      Delayer.run
+    while (readable, = IO.select(pipes))
+      readable.each do |pipe|
+        event = pipe.gets.strip
+        notice "Run: #{event}"
+        Delayer.run
+      end
     end
   ensure
     SerialThreadGroup.force_exit!
@@ -78,5 +58,55 @@ module Mainloop
 
   def exception_filter(e)
     e
+  end
+
+  private
+
+  def prepare_remain_hook
+    rx, tx = IO.pipe
+    
+    Delayer.register_remain_hook do
+      er = caller.find { |c| not c.include?("delayer") }
+      tx.puts("remain_hook by #{er}")
+    end
+    
+    rx
+  end
+
+  def prepare_reserve_hook
+    rx, tx = IO.pipe
+   
+    Delayer.register_reserve_hook do |delay|
+      er = caller.find { |c| not c.include?("delayer") }
+      Thread.new do
+        sleep delay
+        tx.puts("reserve_hook(#{delay}) by #{er}")
+      end
+    end
+    
+    rx
+  end
+
+  def prepare_sigusr1
+    rx, tx = IO.pipe
+    
+    Signal.trap(:USR1) do
+      tx.puts("USR1")
+    end
+
+    rx
+  end
+
+  def prepare_allen
+    rx, tx = IO.pipe
+    
+    Thread.new do
+      loop do
+        sleep 0.25
+        tx.puts("Allen")
+      end
+    end
+
+    rx
   end
 end
