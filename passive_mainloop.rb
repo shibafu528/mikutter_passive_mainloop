@@ -56,12 +56,16 @@ module Mainloop
       delayer_write.puts("USR1")
     end
 
-    Thread.new do
-      loop do
-        sleep 0.25
-        delayer_write.puts("Allen")
+    if ENV["ALLEN"] == "1"
+      Thread.new do
+        loop do
+          sleep 0.25
+          delayer_write.puts("Allen")
+        end
       end
     end
+
+    notice "Started. My PID is #{Process.pid}"
 
     while (readable, = IO.select([delayer_read]))
       event = readable.first.gets.strip
